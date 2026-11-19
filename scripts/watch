@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Live MuJoCo viewer for one episode. Usage: scripts/watch --planner rule:naive --family pass_by
+# (macOS needs mjpython; uv's Python keeps libpython outside the venv, so point the loader at it.)
+cd "$(dirname "$0")/.."
+PYLIB="$(.venv/bin/python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+DYLD_LIBRARY_PATH="$PYLIB${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" exec .venv/bin/mjpython -W ignore -m saydo.manip.watch "$@"

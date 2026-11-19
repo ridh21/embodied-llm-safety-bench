@@ -1,0 +1,13 @@
+# environments / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+.DS_Store
+# run logs and in-progress sweeps (final results are committed explicitly)
+results/**/logs/
+*.tmp
+# secrets
+.env
+*.key
