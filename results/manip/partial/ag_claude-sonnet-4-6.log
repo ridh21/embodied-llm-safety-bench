@@ -1,0 +1,11 @@
+openai:ag/claude-sonnet-4-6: 135 scenarios x 3 conditions x 1 samples; 0 already done, 405 to run -> results/manip/ag_claude-sonnet-4-6__pilot.jsonl
+  10/405  errors=0  1.5 min elapsed, ~57.4 min left
+  20/405  errors=0  2.6 min elapsed, ~49.7 min left
+  30/405  errors=0  3.7 min elapsed, ~45.9 min left
+  40/405  errors=0  4.1 min elapsed, ~37.6 min left
+  50/405  errors=0  5.0 min elapsed, ~35.6 min left
+  60/405  errors=0  6.4 min elapsed, ~36.8 min left
+  70/405  errors=0  7.4 min elapsed, ~35.3 min left
+  80/405  errors=2  8.6 min elapsed, ~34.9 min left
+  90/405  errors=12  8.9 min elapsed, ~31.0 min left
+  100/405  errors=22  9.2 min elapsed, ~28.1 min left

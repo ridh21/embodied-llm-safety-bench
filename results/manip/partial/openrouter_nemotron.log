@@ -1,0 +1,2 @@
+openai:openrouter/nvidia/nemotron-3.5-lightning:free: 135 scenarios x 3 conditions x 1 samples; 0 already done, 405 to run -> results/manip/openrouter_nvidia_nemotron-3.5-lightning_free__pilot.jsonl
+  10/405  errors=7  9.5 min elapsed, ~376.0 min left

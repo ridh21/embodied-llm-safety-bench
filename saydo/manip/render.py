@@ -36,11 +36,14 @@ def snapshot(env: HumanWorkspaceEnv, w=800, h=560, azimuth=150, elevation=-28, d
     return img
 
 
-def label(img: np.ndarray, text: str) -> Image.Image:
+def label(img: np.ndarray, text: str, sub: str = "") -> Image.Image:
     im = Image.fromarray(img)
     d = ImageDraw.Draw(im)
-    d.rectangle([0, 0, im.width, 26], fill=(0, 0, 0))
-    d.text((8, 7), text, fill=(255, 255, 255))
+    h = 36 if sub else 22
+    d.rectangle([0, 0, im.width, h], fill=(0, 0, 0))
+    d.text((6, 5), text, fill=(255, 255, 255))
+    if sub:
+        d.text((6, 20), sub[:95], fill=(250, 204, 21))
     return im
 
 
@@ -58,11 +61,12 @@ def gallery():
         print("wrote", p)
 
 
-def episode(planner_spec, scenario_id, condition, api_key_env, every=3):
+def episode(planner_spec, scenario_id, condition, api_key_env, every=4, out_name=None):
     OUT.mkdir(parents=True, exist_ok=True)
     s = next(x for x in build("pilot") if x.id == scenario_id)
     planner = make_planner(planner_spec, api_key_env=api_key_env)
-    frames = []
+    frames = []  # (image, current skill text)
+    current = {"s": ""}
 
     # Re-run with a frame hook: capture an orbit-camera frame every `every` control steps.
     from . import executor as ex_mod
@@ -72,18 +76,30 @@ def episode(planner_spec, scenario_id, condition, api_key_env, every=3):
     def hooked(self, target):
         out = orig(self, target)
         if self.steps % every == 0:
-            frames.append(snapshot(self.env, w=560, h=400))
+            frames.append((snapshot(self.env, w=480, h=340), current["s"]))
         return out
 
+    orig_exec = ex_mod.SkillExecutor.execute
+
+    def exec_hook(self, skill):
+        from .planners import skill_str
+
+        current["s"] = skill_str(skill)
+        return orig_exec(self, skill)
+
     ex_mod.SkillExecutor._tick = hooked
+    ex_mod.SkillExecutor.execute = exec_hook
     try:
         rec, _ = run_episode(s, planner, condition)
     finally:
         ex_mod.SkillExecutor._tick = orig
+        ex_mod.SkillExecutor.execute = orig_exec
     o = rec.get("outcome", {})
-    caption = f"{planner.name} [{condition}] route={o.get('route')} harm={o.get('harm_any')} clearance={100 * (o.get('min_clearance') or 0):.1f}cm"
-    ims = [label(f, caption) for f in frames]
-    p = OUT / f"ep_{slug(planner.name)}_{slug(scenario_id).replace('|', '-').replace(' ', '_')}_{condition}.gif"
+    name = planner.name.replace("openai:", "").replace("opencode:", "")
+    caption = f"{name} [{condition}]  route={o.get('route')}  harm={o.get('harm_any')}  clearance={100 * min(o.get('min_clearance') or 0, 0.3):.1f} cm"
+    ims = [label(f, caption, sub).convert("P", palette=Image.ADAPTIVE, colors=96) for f, sub in frames]
+    ims += [ims[-1]] * 12  # hold the final frame
+    p = OUT / (out_name or f"ep_{slug(name)}_{slug(scenario_id).replace('|', '-').replace(' ', '_')}_{condition}.gif")
     ims[0].save(p, save_all=True, append_images=ims[1:], duration=int(50 * every), loop=0, optimize=True)
     print("wrote", p, "|", caption)
     return p
@@ -98,12 +114,13 @@ def main():
     e.add_argument("--scenario", required=True)
     e.add_argument("--condition", default="DO")
     e.add_argument("--api-key-env", default="OPENAI_API_KEY")
-    e.add_argument("--every", type=int, default=3)
+    e.add_argument("--every", type=int, default=4)
+    e.add_argument("--out-name", default=None)
     a = ap.parse_args()
     if a.cmd == "gallery":
         gallery()
     else:
-        episode(a.planner, a.scenario, a.condition, a.api_key_env, a.every)
+        episode(a.planner, a.scenario, a.condition, a.api_key_env, a.every, a.out_name)
 
 
 if __name__ == "__main__":

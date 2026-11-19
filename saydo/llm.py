@@ -240,26 +240,69 @@ class OpenAICompatLLM(LLM):
 
 
 class ClaudeCLILLM(LLM):
+    """Claude Code CLI in headless mode. Model spec `<model>[@profile1,profile2,...]`:
+    with profiles, calls rotate across those Claude Code config dirs (CLAUDE_CONFIG_DIR =
+    $SAYDO_CLAUDE_PROFILES/<name>, default ~/.claude-profiles/<name>), and a profile that reports a
+    usage/rate limit is skipped for 15 minutes."""
+
     backend = "claude-cli"
+    LIMIT_WORDS = ("rate limit", "rate_limit", "usage limit", "limit reached", "session limit", "overloaded",
+                   "Failed to authenticate", "OAuth")
 
     def __init__(self, model="sonnet", binary=None, timeout=300, **kw):
+        model, _, profiles = model.partition("@")
         super().__init__(model, **kw)
         self.cmd = shlex.split(binary or os.environ.get("SAYDO_CLAUDE_BIN", "claude"))
         self.timeout = timeout
         self.workdir = tempfile.mkdtemp(prefix="saydo-cli-")  # no project CLAUDE.md / settings leak in
+        root = Path(os.environ.get("SAYDO_CLAUDE_PROFILES", Path.home() / ".claude-profiles"))
+        self.profiles = [str(root / p) for p in profiles.split(",") if p] or [None]
+        self.cooldown = {p: 0.0 for p in self.profiles}
+        self._rr = 0
+        self._lock = threading.Lock()
+
+    @property
+    def name(self) -> str:  # profiles don't change the model, so they don't change cache keys
+        return f"{self.backend}:{self.model}"
+
+    def _pick(self):
+        with self._lock:
+            now = time.time()
+            for _ in range(len(self.profiles)):
+                p = self.profiles[self._rr % len(self.profiles)]
+                self._rr += 1
+                if self.cooldown[p] <= now:
+                    return p
+            soonest = min(self.cooldown, key=self.cooldown.get)
+            wait = self.cooldown[soonest] - now
+        if wait > 3600:
+            raise QuotaExhausted("all Claude profiles are limited for more than an hour")
+        time.sleep(max(0.0, wait))
+        return soonest
 
     def _raw(self, system, user, schema):
+        prof = self._pick()
+        env = dict(os.environ)
+        if prof:
+            env["CLAUDE_CONFIG_DIR"] = prof
         cmd = self.cmd + [
             "-p", user, "--output-format", "json", "--json-schema", json.dumps(schema),
             "--system-prompt", system, "--tools", "", "--strict-mcp-config",
             "--no-session-persistence", "--model", self.model,
         ]
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, cwd=self.workdir)
-        if p.returncode != 0:
-            raise LLMError(f"claude CLI exit {p.returncode}: {(p.stderr or p.stdout)[:300]}")
-        data = json.loads(p.stdout)
-        if data.get("is_error"):
-            raise LLMError(f"claude CLI error: {str(data.get('result'))[:300]}")
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, cwd=self.workdir, env=env)
+        blob = (p.stdout or "") + (p.stderr or "")
+        try:
+            data = json.loads(p.stdout)
+        except json.JSONDecodeError:
+            data = {"is_error": True, "result": blob[-300:]}
+        if p.returncode != 0 or data.get("is_error"):
+            msg = str(data.get("result") or blob)[:300]
+            if any(w.lower() in msg.lower() for w in self.LIMIT_WORDS):
+                with self._lock:
+                    self.cooldown[prof] = time.time() + 900
+                raise LLMError(f"profile {Path(prof).name if prof else 'default'} limited: {msg}")
+            raise LLMError(f"claude CLI error: {msg}")
         out = data.get("structured_output") or _extract_json(data.get("result", ""))
         u = data.get("usage") or {}
         return out, {"prompt_tokens": (u.get("input_tokens", 0) or 0) + (u.get("cache_read_input_tokens", 0) or 0)
