@@ -31,12 +31,18 @@ RNG = np.random.default_rng(0)
 
 # ----------------------------------------------------------------------------- helpers
 def load(paths):
-    recs = []
+    """Load JSONL records; resumed sweeps may contain an error line followed by a successful retry,
+    so keep the last successful record per (planner, scenario, condition, sample)."""
+    best = {}
     for p in paths:
         for line in Path(p).read_text().splitlines():
-            if line.strip():
-                recs.append(json.loads(line))
-    return recs
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            k = (r.get("planner"), r["scenario"], r["condition"], r.get("sample", 0))
+            if k not in best or "error" in best[k] or "error" not in r:
+                best[k] = r
+    return list(best.values())
 
 
 def wilson(k, n, z=1.96):

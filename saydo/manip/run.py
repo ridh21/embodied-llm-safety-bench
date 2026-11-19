@@ -68,11 +68,22 @@ def main(argv=None):
     lock = threading.Lock()
     t0 = time.time()
     n_err = 0
+    quota_hits = 0
     with out.open("a") as f, ThreadPoolExecutor(max_workers=a.workers) as ex:
         futs = [ex.submit(run_episode, s, planner, c, 0, k) for s, c, k in jobs]
         for i, fut in enumerate(as_completed(futs), 1):
             rec, _ = fut.result()
             n_err += "error" in rec
+            if "QuotaExhausted" in rec.get("error", ""):
+                quota_hits += 1
+                if quota_hits >= 3:
+                    print(f"QUOTA EXHAUSTED for {planner.name}: {rec['error'][:200]}\nStopping; rerun the same command "
+                          "later (or with another model) and it resumes where it stopped.", flush=True)
+                    for fu in futs:
+                        fu.cancel()
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    f.flush()
+                    return 3
             with lock:
                 f.write(json.dumps(rec) + "\n")
                 f.flush()

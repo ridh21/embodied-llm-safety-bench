@@ -7,6 +7,8 @@ openai      Any OpenAI-compatible /v1/chat/completions server:
             Ollama (http://localhost:11434/v1), vLLM, OpenRouter, ...
 claude-cli  The local Claude Code CLI in headless mode (`claude -p --json-schema`),
             which uses whatever login the CLI already has (e.g. a Claude subscription).
+opencode    The OpenCode CLI (`opencode run`), sandboxed with a tool-less agent; reaches every
+            provider OpenCode is logged into (OpenCode Zen free models, claude-agent, Copilot, ...).
 
 Every call goes through an on-disk cache keyed by (backend, model, prompt, schema),
 so interrupted sweeps resume for free and re-analysis never re-queries a model.
@@ -33,6 +35,29 @@ CACHE_DIR = Path(os.environ.get("SAYDO_CACHE", ".cache/llm"))
 
 class LLMError(RuntimeError):
     pass
+
+
+class QuotaExhausted(LLMError):
+    """The provider's quota is used up for a long time; retrying now is pointless."""
+
+
+_RESET = re.compile(r"reset after (?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?")
+_QUOTA = ("free-limit", "Free usage limit", "FreeUsageLimitError", "insufficient_quota", "quota exceeded")
+
+
+def _classify(err: Exception) -> float | None:
+    """Seconds to wait before retrying (None = default backoff). Raises QuotaExhausted for long resets."""
+    s = str(err)
+    if any(q in s for q in _QUOTA):
+        raise QuotaExhausted(s[:300])
+    m = _RESET.search(s)
+    if m and any(m.groups()):
+        h, mi, se = (int(g) if g else 0 for g in m.groups())
+        wait = h * 3600 + mi * 60 + se
+        if wait > 600:
+            raise QuotaExhausted(s[:300])
+        return wait + 1
+    return None
 
 
 @dataclass
@@ -108,7 +133,7 @@ class LLM:
 
     backend = "base"
 
-    def __init__(self, model: str, cache: bool = True, retries: int = 3, temperature: float | None = None):
+    def __init__(self, model: str, cache: bool = True, retries: int = 6, temperature: float | None = None):
         self.model = model
         self.cache = cache
         self.retries = retries
@@ -143,9 +168,17 @@ class LLM:
                     tmp.write_text(json.dumps({"model": self.name, "output": out}))
                     tmp.replace(key)
                 return out
+            except QuotaExhausted:
+                self.stats.add(failures=1)
+                raise
             except (LLMError, httpx.HTTPError, subprocess.SubprocessError, json.JSONDecodeError, ValueError) as e:
                 err = e
-                time.sleep(min(2 ** attempt, 20))
+                try:
+                    wait = _classify(e)
+                except QuotaExhausted:
+                    self.stats.add(failures=1)
+                    raise
+                time.sleep(wait if wait is not None else min(2 ** attempt, 30))
         self.stats.add(failures=1)
         raise LLMError(f"{self.name} failed after {self.retries} attempts: {err}")
 
@@ -164,7 +197,9 @@ class OpenAICompatLLM(LLM):
         if key:
             self.headers["authorization"] = f"Bearer {key}"
         self.client = httpx.Client(timeout=timeout)
-        self.schema_mode = "json_schema"  # downgraded automatically if the server rejects it
+        # "json_schema" uses response_format; downgraded automatically to "prompt" (schema in the prompt) if the
+        # server rejects it or returns nothing. Force with SAYDO_SCHEMA_MODE=prompt.
+        self.schema_mode = os.environ.get("SAYDO_SCHEMA_MODE", "json_schema")
 
     def _payload(self, system, user, schema):
         msgs = [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -196,8 +231,9 @@ class OpenAICompatLLM(LLM):
         try:
             out = _extract_json(content)
         except LLMError:
-            if self.schema_mode == "json_schema":  # server accepted the schema but ignored it
+            if self.schema_mode == "json_schema":  # server accepted the schema but ignored/dropped it
                 self.schema_mode = "prompt"
+                return self._raw(system, user, schema)
             raise
         u = data.get("usage") or {}
         return out, {"prompt_tokens": u.get("prompt_tokens", 0) or 0, "completion_tokens": u.get("completion_tokens", 0) or 0}
@@ -230,12 +266,77 @@ class ClaudeCLILLM(LLM):
                      + (u.get("cache_creation_input_tokens", 0) or 0), "completion_tokens": u.get("output_tokens", 0) or 0}
 
 
+OPENCODE_CONFIG = {
+    "$schema": "https://opencode.ai/config.json",
+    "permission": {"edit": "deny", "bash": "deny", "webfetch": "deny", "external_directory": "deny"},
+    "agent": {
+        "plain": {
+            "mode": "primary",
+            "description": "No tools; answer only.",
+            "prompt": "Answer the user's message directly in the requested format. Never use tools.",
+            "tools": {k: False for k in ("bash", "edit", "write", "read", "grep", "glob", "list", "patch",
+                                         "todowrite", "todoread", "webfetch", "task")},
+        }
+    },
+}
+
+
+class OpenCodeLLM(LLM):
+    """Calls models through the OpenCode CLI (`opencode run --format json`), e.g.
+    `opencode/deepseek-v4.1-flash-free` or `claude-agent/sonnet` (Claude Code login).
+
+    Safety: runs from an empty temp directory whose opencode.json defines a tool-less agent and denies
+    edit/bash/web permissions; any reply containing a tool call is rejected. The system prompt is sent as
+    the first block of the message (OpenCode's own agent prompt is a one-line "answer only" instruction).
+    """
+
+    backend = "opencode"
+
+    def __init__(self, model, binary=None, timeout=300, **kw):
+        super().__init__(model, **kw)
+        self.cmd = shlex.split(binary or os.environ.get("SAYDO_OPENCODE_BIN", "opencode"))
+        self.timeout = timeout
+        self.workdir = tempfile.mkdtemp(prefix="saydo-opencode-")
+        Path(self.workdir, "opencode.json").write_text(json.dumps(OPENCODE_CONFIG, indent=2))
+
+    def _raw(self, system, user, schema):
+        msg = (f"<system>\n{system}\n</system>\n\n{user}\n\n"
+               "Respond with ONLY a JSON object (no prose, no code fence) matching this JSON Schema:\n" + json.dumps(schema))
+        cmd = self.cmd + ["run", "--agent", "plain", "--format", "json", "--archived", "-m", self.model, msg]
+        # OpenCode resolves its project (and opencode.json) from $PWD, not the process cwd.
+        env = {**os.environ, "PWD": self.workdir}
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout, cwd=self.workdir, env=env)
+        texts, usage = [], {"prompt_tokens": 0, "completion_tokens": 0}
+        for line in p.stdout.splitlines():
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            part = ev.get("part") or {}
+            if ev.get("type") in ("tool_use", "tool") or part.get("type") == "tool":
+                raise LLMError("model attempted a tool call; rejected")
+            if ev.get("type") == "text" and part.get("text"):
+                texts.append(part["text"])
+            if ev.get("type") == "step_finish":
+                tok = part.get("tokens") or {}
+                usage["prompt_tokens"] += tok.get("input", 0) or 0
+                usage["completion_tokens"] += (tok.get("output", 0) or 0) + (tok.get("reasoning", 0) or 0)
+            if ev.get("type") == "error":
+                raise LLMError(f"opencode error: {str(ev)[:300]}")
+        if p.returncode != 0 and not texts:
+            raise LLMError(f"opencode exit {p.returncode}: {(p.stderr or p.stdout)[-300:]}")
+        return _extract_json("".join(texts)), usage
+
+
 def make_llm(spec: str, base_url: str | None = None, api_key_env: str = "OPENAI_API_KEY", temperature: float | None = None) -> LLM:
     """`spec` is `<backend>:<model>`; a bare model name means the OpenAI-compatible backend.
 
-    Examples: `openai:ocz/claude-sonnet-4-6`, `ocz/gpt-5.4-mini`, `claude-cli:sonnet`.
+    Examples: `openai:cc/claude-sonnet-5`, `ag/gemini-3.8-flash-low`, `claude-cli:sonnet`,
+    `opencode:opencode/deepseek-v4.1-flash-free`, `opencode:claude-agent/sonnet`.
     """
-    backend, _, model = spec.partition(":") if spec.split(":", 1)[0] in ("openai", "claude-cli") else ("openai", ":", spec)
+    backend, _, model = spec.partition(":") if spec.split(":", 1)[0] in ("openai", "claude-cli", "opencode") else ("openai", ":", spec)
     if backend == "claude-cli":
         return ClaudeCLILLM(model=model, temperature=temperature)
+    if backend == "opencode":
+        return OpenCodeLLM(model=model, temperature=temperature)
     return OpenAICompatLLM(model=model, base_url=base_url, api_key_env=api_key_env, temperature=temperature)
