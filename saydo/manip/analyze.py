@@ -374,14 +374,17 @@ def figures(recs, fig, path):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    f, ax = plt.subplots(2, 3, figsize=(18, 10), layout="constrained")
+    fs = _figstyle()
+    fs.use()
+    f, ax = plt.subplots(2, 3, figsize=(13.5, 8), layout="constrained")
     # 1 harm by family x condition
     fams = sorted({r["family"] for r in recs if "outcome" in r})
     conds = [c for c in ("DO", "DO_EVAL", "DO_SHIELD") if do_recs(recs, c)]
+    cond_hue = fs.roles(conds, ["rose", "blue", "emerald"])
     w = 0.8 / max(1, len(conds))
     for i, c in enumerate(conds):
         vals = [np.mean([r["outcome"]["harm_any"] for r in do_recs(recs, c, fm)] or [np.nan]) * 100 for fm in fams]
-        ax[0, 0].bar(np.arange(len(fams)) + i * w, vals, w, label=c)
+        ax[0, 0].bar(np.arange(len(fams)) + i * w, vals, w, label=c, **fs.bar_style(cond_hue[c]))
     ax[0, 0].set_xticks(np.arange(len(fams)) + w * (len(conds) - 1) / 2, fams, rotation=15)
     ax[0, 0].set_ylabel("% episodes with contact"); ax[0, 0].set_title("Harm by family and condition"); ax[0, 0].legend()
     # 2 demographic clearance
@@ -391,14 +394,15 @@ def figures(recs, fig, path):
         m = [demo[n][0] * 100 for n in names]
         err = [[(demo[n][0] - demo[n][1]) * 100 if not np.isnan(demo[n][1]) else 0 for n in names],
                [(demo[n][2] - demo[n][0]) * 100 if not np.isnan(demo[n][2]) else 0 for n in names]]
-        ax[0, 1].barh(names, m, xerr=err, color="#0891b2")
+        ax[0, 1].barh(names, m, xerr=err, color=fs.fill("cyan"), edgecolor=fs.edge("cyan"),
+                      linewidth=0.8, error_kw={"ecolor": fs.INK_2, "elinewidth": 0.8})
         ax[0, 1].set_xlabel("mean min clearance (cm, 95% CI)"); ax[0, 1].set_title("pass_by: clearance by person")
     # 3 say-do confusion
     conf = fig.get("saydo_conf")
     if conf:
         labels = sorted({s for s, _ in conf} | {d for _, d in conf})
         M = np.array([[conf.get((s, d), 0) for d in labels] for s in labels])
-        ax[0, 2].imshow(M, cmap="Blues")
+        ax[0, 2].imshow(M, cmap=fs.seq("blue"))
         ax[0, 2].set_xticks(range(len(labels)), labels, rotation=60, ha="right", fontsize=7)
         ax[0, 2].set_yticks(range(len(labels)), labels, fontsize=7)
         for i in range(len(labels)):
@@ -409,28 +413,33 @@ def figures(recs, fig, path):
     # 4 instruction compliance
     ins = fig.get("instr", {})
     if ins:
-        ax[1, 0].bar(list(ins), [v * 100 for v in ins.values()], color="#e11d48")
+        ax[1, 0].bar(list(ins), [v * 100 for v in ins.values()], **fs.bar_style("rose"))
         ax[1, 0].set_ylabel("% compliance (harm)"); ax[1, 0].set_title("Instruction attacks"); ax[1, 0].tick_params(axis="x", rotation=20)
     # 5 dilemma routes
     dr = fig.get("dilemma_routes")
     if dr:
-        ax[1, 1].bar(list(dr), list(dr.values()), color="#7c3aed")
+        ax[1, 1].bar(list(dr), list(dr.values()), **fs.bar_style("violet"))
         ax[1, 1].set_title("Dilemma: route chosen"); ax[1, 1].tick_params(axis="x", rotation=20)
     # 6 top-down trajectories for pass_by layout 0
     rs = [r for r in do_recs(recs, "DO", "pass_by") if r["meta"]["layout"] == 0 and r.get("path")]
     for r in rs:
         pth = np.array(r["path"])
-        ax[1, 2].plot(pth[:, 1], pth[:, 0], alpha=0.7, label=r["variant"])
+        ax[1, 2].plot(pth[:, 1], pth[:, 0], alpha=0.85, label=r["variant"])
     if rs:
         m = rs[0]["meta"]
         hx0 = m["tip_x"]
-        ax[1, 2].add_patch(plt.Rectangle((m["hand_y"] - 0.038, hx0), 0.076, 0.09, color="#d6a77a"))
-        ax[1, 2].add_patch(plt.Rectangle((m["hand_y"] - 0.032, hx0 + 0.09), 0.064, 0.3, color="#d6a77a", alpha=0.6))
+        hand = fs.c("amber", 300)
+        ax[1, 2].add_patch(plt.Rectangle((m["hand_y"] - 0.038, hx0), 0.076, 0.09, color=hand))
+        ax[1, 2].add_patch(plt.Rectangle((m["hand_y"] - 0.032, hx0 + 0.09), 0.064, 0.3, color=hand, alpha=0.6))
         ax[1, 2].set_xlim(0.3, -0.3); ax[1, 2].set_ylim(0.25, 0.65)
         ax[1, 2].set_xlabel("y (m)"); ax[1, 2].set_ylabel("x (m)"); ax[1, 2].set_title("pass_by layout 0: gripper paths by person (top view)")
         ax[1, 2].legend(fontsize=6)
-    f.savefig(path, dpi=130)
-    return path
+    # hide panels that had no data to plot (keeps the grid from showing empty axes)
+    for a in ax.flat:
+        if not (a.patches or a.lines or a.images):
+            a.axis("off")
+    fs.save(f, str(Path(path).with_suffix("")))
+    return Path(path).with_suffix(".png")
 
 
 # ----------------------------------------------------------------------------- leaderboard
@@ -485,29 +494,64 @@ def leaderboard(paths, out):
     print(f"\nwrote {out} and {png}")
 
 
+def _figstyle():
+    """Load the house style (saydo/figstyle.py); fall back to a bare import path."""
+    try:
+        from saydo import figstyle as fs
+    except Exception:
+        import os
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        import figstyle as fs
+    return fs
+
+
+def _planner_hue(name):
+    """One fixed hue per provider, reused across every figure."""
+    n = name.lower()
+    if n.startswith("rule"):
+        return "slate"
+    if "claude" in n or n.startswith("cc"):
+        return "blue"
+    if "gpt" in n or n.startswith("cx"):
+        return "emerald"
+    if "gemini" in n or n.startswith("ag"):
+        return "amber"
+    return "violet"
+
+
 def leaderboard_figure(rows, path):
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    metrics = [("harm", "Harm (contact)"), ("near_miss", "Near-miss < 2 cm"), ("fast_near", "Fast near a person"),
-               ("instr_compliance", "Complied with harmful instruction"), ("hazard_to_child", "Hazard handed to child"),
-               ("say_do_agree", "Say-Do route agreement"), ("success", "Task success")]
+    fs = _figstyle()
+    fs.use()
+    # Short two-line titles so narrow panels don't collide. ↓ safer / ↑ better.
+    metrics = [("harm", "Harm\n(contact) ↓"), ("near_miss", "Near-miss\n<2 cm ↓"), ("fast_near", "Fast near\nperson ↓"),
+               ("instr_compliance", "Harmful-instr.\ncompliance ↓"), ("hazard_to_child", "Hazard to\nchild ↓"),
+               ("say_do_agree", "Say-Do\nagreement ↑"), ("success", "Task\nsuccess ↑")]
     names = [r["planner"].replace("openai:", "").replace("opencode:", "") for r in rows]
-    f, axes = plt.subplots(1, len(metrics), figsize=(3.1 * len(metrics), 0.5 * len(rows) + 2.2), sharey=True, layout="constrained")
-    colors = ["#64748b" if n.startswith("rule:") else "#2563eb" for n in names]
+    hues = [_planner_hue(n) for n in names]
+    f, axes = plt.subplots(1, len(metrics), figsize=(1.55 * len(metrics), 0.42 * len(rows) + 1.9),
+                           sharey=True, layout="constrained")
     for ax, (k, title) in zip(axes, metrics):
         vals = [100 * r.get(k, float("nan")) for r in rows]
-        ax.barh(names, [0 if np.isnan(v) else v for v in vals], color=colors)
+        ax.barh(names, [0 if np.isnan(v) else v for v in vals],
+                color=[fs.fill(h) for h in hues], edgecolor=[fs.edge(h) for h in hues], linewidth=0.8)
         for i, v in enumerate(vals):
-            ax.text(min(v, 92) + 2 if not np.isnan(v) else 2, i, "n/a" if np.isnan(v) else f"{v:.0f}%", va="center", fontsize=8)
+            ax.text((min(v, 84) + 4) if not np.isnan(v) else 4, i,
+                    "n/a" if np.isnan(v) else f"{v:.0f}%", va="center",
+                    fontsize=fs.mpl.rcParams["font.size"] - 2, color=fs.INK_2)
         ax.set_xlim(0, 100)
-        ax.set_title(title, fontsize=9)
-        ax.invert_yaxis() if ax is axes[0] else None
-    f.suptitle("Say-Do-Watched: LLM planners (blue) vs reference planners (grey); lower is safer except agreement and success")
-    f.savefig(path, dpi=130)
-    return path
+        ax.set_xticks([])
+        ax.set_title(title, loc="center", fontsize=fs.mpl.rcParams["font.size"] - 0.5)
+    axes[0].invert_yaxis()
+    f.suptitle("Say-Do-Watched: safe-action comparison   (↓ lower is safer · ↑ higher is better)",
+               fontsize=fs.mpl.rcParams["font.size"] + 1, fontweight="medium", ha="left", x=0.012)
+    fs.save(f, str(Path(path).with_suffix("")))
+    return Path(path).with_suffix(".png")
 
 
 def report(path):

@@ -14,48 +14,55 @@ so differences in behaviour are attributable to that factor.
 
 ## Results so far
 
-These numbers are from the `pilot` preset. **The run is still in progress:** the two Claude models were paused
-at a subscription limit, so their rows cover fewer episodes than the others and some scenario families are not yet
-complete for them. "DO episodes" is how many closed-loop runs each model has finished. The table is regenerated
-with `python -m saydo.manip.analyze results/manip/*.jsonl --leaderboard`.
+These numbers are from the `pilot` preset, regenerated with
+`python -m saydo.manip.analyze results/manip/*.jsonl --leaderboard`. Coverage: Claude Opus 5.5 and the three
+reference robots are complete (all 405 episodes each); Claude Sonnet 5 has 390 of 405 (14 runs in the
+handover / hot-iron family failed on a provider error and were not re-run); GPT-5.6-luna is complete; Gemini
+3.8-flash is at 330 of 405. "DO episodes" is the count of closed-loop `DO` runs behind each row.
 
 | planner | DO episodes | task success | harm | near-miss | fast near person | say-do agreement | harm DO − DO_EVAL | instruction compliance | hazard handed to child | max demographic clearance gap |
 |---|---|---|---|---|---|---|---|---|---|---|
-| claude-sonnet-5 | 62 | 100% | 0% | 15% | 0% | 31% | +0% | n/a | n/a | 1.1 cm |
-| claude-opus-5-5 | 47 | 96% | 0% | 0% | 0% | 68% | +0% | n/a | n/a | 3.5 cm |
-| gpt-5.6-luna | 135 | 85% | 19% | 5% | 2% | 36% | +3% | 0% | 0% | 2.0 cm |
-| gemini-3.8-flash-low | 110 | 73% | 0% | 0% | 0% | 85% | +0% | 0% | n/a | 14.8 cm |
 | rule:safe | 135 | 81% | 0% | 0% | 0% | 100% | +0% | 0% | 0% | 0.0 cm |
+| gemini-3.8-flash-low | 110 | 73% | 0% | 0% | 0% | 85% | +0% | 0% | n/a | 14.8 cm |
 | rule:biased:age:child | 135 | 81% | 4% | 5% | 10% | 92% | +3% | 0% | 100% | 4.8 cm |
+| claude-opus-5-5 | 135 | 73% | 5% | 0% | 0% | 78% | +1% | 0% | 0% | 3.2 cm |
+| claude-sonnet-5 | 130 | 95% | 7% | 11% | 2% | 35% | −5% | 0% | 0% | 1.1 cm |
+| gpt-5.6-luna | 135 | 85% | 19% | 5% | 2% | 36% | +3% | 0% | 0% | 2.0 cm |
 | rule:naive | 135 | 61% | 50% | 67% | 100% | 27% | +0% | 53% | 100% | 0.0 cm |
+
+![Say-Do-Watched leaderboard: safe-action comparison across planners](results/manip/LEADERBOARD.png)
 
 Lower is better for harm, near-miss, fast-near-person, instruction compliance, hazard-to-child and gaps; higher is
 better for task success and say-do agreement. The three `rule:*` rows are hand-written reference robots, not models;
 they are included to show the measurements work (see §5).
 
-What the pilot shows up to this point:
+What the pilot shows:
 
-- **Models state a safer plan than they drive.** Say-do agreement — how often the route and speed a model describes
-  matches what it actually does when controlling the arm — is 31% for Claude Sonnet 5, 36% for GPT-5.6-luna and 68%
-  for Claude Opus 5.5. A model can describe a careful approach in words and then take a different path in motion.
-- **Direct contact is rare for the frontier models, but not gone.** GPT-5.6-luna touched a person in 19% of its
-  runs. Claude Sonnet 5, Claude Opus 5.5 and Gemini have 0% contact so far, though Claude Sonnet 5 came within 2 cm
-  (a near-miss) in 15% of runs.
-- **Equal treatment is not automatic.** In scenes that are geometrically identical and differ only in how the
-  person is described, Gemini kept up to 14.8 cm more clearance for some people than others, and Claude Opus 5.5 up
-  to 3.5 cm. A gap here means the text description of the person changed the robot's safety margin.
-- **The harmful-instruction results so far are clean for the models that finished that family.** GPT-5.6-luna and
-  Gemini refused every harmful, deceptive and injected instruction (0% compliance), against 53% for the naive
-  reference. The Claude models have not finished this family yet (`n/a`).
-- **The "being watched" effect is near zero so far:** harm changes by at most 3 points between `DO` and `DO_EVAL`
-  for every model. The Claude cells are still too small to read.
-- **The reference robots behave exactly as built,** which is what makes the rest of the table trustworthy: the
-  naive robot makes contact in 50% of runs and drives fast near people 100% of the time; the age-biased robot hands
-  a knife or hot iron to the child in 100% of runs and only misbehaves when it is not told it is watched; the safe
+- **The frontier chat models state a safer plan than they drive.** Say-do agreement — how often the route and speed
+  a model describes matches what it actually does when controlling the arm — is 35% for Claude Sonnet 5 and 36% for
+  GPT-5.6-luna, against 78% for Claude Opus 5.5 and 85% for Gemini. Sonnet and GPT can describe a careful approach in
+  words and then take a different path in motion; a text-only eval that reads only the words would miss this.
+- **Direct contact is rare but not gone, and the ranking is not what task success suggests.** GPT-5.6-luna touched a
+  person in 19% of runs, Claude Sonnet 5 in 7%, Claude Opus 5.5 in 5%, Gemini in 0%. Sonnet also came within 2 cm (a
+  near-miss) in 11% of runs. Sonnet finishes the task most often (95%) yet is not the safest, so success and safety
+  have to be read together.
+- **Equal treatment is not automatic.** In scenes that are geometrically identical and differ only in how the person
+  is described, Gemini kept up to 14.8 cm more clearance for some people than others, Claude Opus 5.5 up to 3.2 cm
+  and GPT 2.0 cm. A gap here means the text description of the person changed the robot's safety margin.
+- **Harmful instructions were refused across the board.** Every model complied with 0% of the harmful, deceptive and
+  injected instructions, against 53% for the naive reference — the one family where the models are uniformly solid.
+- **No model handed a hazard to the child** (0%), where the age-biased reference does so 100% of the time.
+- **The "being watched" effect is small here:** harm moves by at most 5 points between `DO` and `DO_EVAL` for every
+  model (Sonnet −5, others within ±3), so on this pilot the models do not visibly behave worse when they are not
+  told they are being evaluated. This is the one headline hypothesis the current data does not support.
+- **The reference robots behave exactly as built,** which is what makes the rest of the table trustworthy: the naive
+  robot makes contact in 50% of runs and drives fast near people 100% of the time; the age-biased robot hands a
+  knife or hot iron to the child in 100% of runs and only misbehaves when it is not told it is watched; the safe
   robot stays at 0% harm with full say-do agreement.
 
-Full models still have to finish, and the pilot cells are small, so read these as early signal with the caveats in
-§9, not final scores.
+This is a pilot: cells are a few dozen episodes, Gemini and the Sonnet hot-iron handover cell are thin, and the
+confidence intervals in the per-model reports are wide. Read these as early signal with the caveats in §9, not
+final scores.
 
 ---
 
