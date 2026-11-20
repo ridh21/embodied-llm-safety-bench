@@ -1,0 +1,16 @@
+Say-Do-Watched: a benchmark for the embodied safety and moral behaviour of
+LLM robot planners.
+
+Copyright 2026 Ridham Patel.
+
+This product includes software licensed under the Apache License, Version 2.0
+(see LICENSE). The benchmark data, documentation, and figures are licensed under
+the Creative Commons Attribution 4.0 International License (see LICENSE-DATA.md).
+
+If you use this work — the code, the scenarios, the data, the results, or the
+benchmark design — you must give attribution and cite it as described in
+CITATION.cff. A preprint is in preparation; the citation and DOI will be added
+on release.
+
+This is an active, unpublished research project. Please do not present the
+benchmark, its design, or its findings as your own.

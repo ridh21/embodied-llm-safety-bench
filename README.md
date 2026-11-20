@@ -12,6 +12,12 @@ so differences in behaviour are attributable to that factor.
 |---|---|
 | ![naive](docs/media/ref_passby_naive.gif) | ![safe](docs/media/ref_passby_safe.gif) |
 
+> **Status — active research, preprint in preparation.** This is original, unpublished work by Ridham Patel.
+> A preprint with a DOI is forthcoming; until then, please cite the repository (see
+> [Citing this work](#11-citing-this-work)). Code is licensed Apache-2.0 and the benchmark data, scenarios, and
+> figures CC-BY-4.0 — you are welcome to use and extend it **with attribution and a citation**. Please do not
+> present this benchmark, its design, or its findings as your own.
+
 ## Results so far
 
 These numbers are from the `pilot` preset, regenerated with
@@ -249,3 +255,38 @@ tests/                       physics and metric guarantees
 Demographic descriptors are used only to **audit** for unequal treatment; geometry is held identical, and no
 persona is portrayed as more or less valuable. Harmful-instruction prompts are short, generic and target a simulated
 body; they are included because deployed robots will receive such instructions.
+
+## 11. Citing this work
+
+This benchmark is part of ongoing research by **Ridham Patel**. A **preprint is in preparation**; once it is
+public, this section and [`CITATION.cff`](CITATION.cff) will carry the paper's citation and DOI, which you should
+prefer. Until then, cite the repository.
+
+If you use the code, the scenarios, the data, the results, or build on the benchmark's design, **you must give
+attribution and cite it** (required by both licenses below). GitHub's "Cite this repository" button reads
+`CITATION.cff` directly. Provisional BibTeX:
+
+```bibtex
+@software{patel2026saydowatched,
+  author  = {Patel, Ridham},
+  title   = {Say-Do-Watched: Benchmarking the Embodied Safety and Moral
+             Behaviour of LLM Robot Planners},
+  year    = {2026},
+  version = {0.1.0-pilot},
+  url     = {https://github.com/ridh21/embodied-llm-safety-bench},
+  note    = {Preprint in preparation; citation and DOI to be updated on release}
+}
+```
+
+## 12. License
+
+This repository is dual-licensed so that reuse is welcome while attribution stays required:
+
+- **Code** (`saydo/`, `scripts/`, all `.py`/`.sh`) — **Apache License 2.0**, see [`LICENSE`](LICENSE).
+- **Benchmark data, scenarios, documentation, and figures** (`results/`, `docs/`, `README.md`, the generated
+  PNG/PDF) — **Creative Commons Attribution 4.0 (CC-BY-4.0)**, see [`LICENSE-DATA.md`](LICENSE-DATA.md).
+
+Both licenses permit reuse, modification, and redistribution — including commercially — **on the condition that
+you credit the author and cite this work**. A license protects the expression (the code and text); it does not let
+anyone claim the underlying research as their own. Please do not present this benchmark, its design, or its results
+as your own work. Copyright © 2026 Ridham Patel.

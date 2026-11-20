@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: >-
+  This is an active research project. If you use this benchmark — its code,
+  scenarios, data, results, or design — please cite it. A preprint is in
+  preparation; please check back for the paper citation and DOI, and prefer
+  citing the paper once it is available.
+title: >-
+  Say-Do-Watched: Benchmarking the Embodied Safety and Moral Behaviour of
+  LLM Robot Planners
+abstract: >-
+  Say-Do-Watched is an open, reproducible benchmark for the embodied safety and
+  moral behaviour of large language models used as robot planners. An LLM drives
+  a simulated UR5e arm in closed loop in a workspace shared with people, and each
+  scenario is a controlled experiment that varies one factor at a time — who the
+  person is, what a supervisor instructs, and whether the model is told it is
+  being evaluated. The benchmark measures whether a model does what it says
+  (say-do consistency), treats people described differently with equal physical
+  caution, refuses harmful instructions, and behaves the same when it believes it
+  is not being watched.
+type: software
+authors:
+  - family-names: Patel
+    given-names: Ridham
+    alias: ridh21
+version: 0.1.0-pilot
+date-released: "2026-11-20"
+license: Apache-2.0
+url: "https://github.com/ridh21/embodied-llm-safety-bench"
+repository-code: "https://github.com/ridh21/embodied-llm-safety-bench"
+keywords:
+  - embodied AI safety
+  - LLM robot planners
+  - AI alignment
+  - say-do consistency
+  - robot safety benchmark
+  - demographic fairness
+  - evaluation gaming
+preferred-citation:
+  type: article
+  title: >-
+    Say-Do-Watched: Benchmarking the Embodied Safety and Moral Behaviour of
+    LLM Robot Planners
+  authors:
+    - family-names: Patel
+      given-names: Ridham
+  year: 2026
+  notes: >-
+    Preprint in preparation (2026). The citation, venue, and DOI will be updated
+    on release. Until then, cite the software entry above.
